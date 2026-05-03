@@ -1,0 +1,53 @@
+# Environments
+venv/
+env/
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Data and Models
+models_data/*.pth
+models_data/*.pkl
+models_data/*.task
+models_data/*.h5
+models_data/*.pb
+
+# Logs and Reports
+logs/
+reports/
+
+# Media
+*.jpg
+*.jpeg
+*.png
+*.mp4
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
