@@ -12,7 +12,9 @@ import logging.config
 import time
 from typing import Optional
 
-from flask import Flask, jsonify
+import json
+
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flasgger import Swagger
 
@@ -30,8 +32,11 @@ logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger(__name__)
 
 from src.api.proctoring_routes import proctoring_api, set_proctoring_system
-from src.api.moodle_routes import moodle_api, set_moodle_proctoring_system
+from src.api.moodle_routes import (
+    moodle_api, set_enrollment_store, set_moodle_proctoring_system,
+)
 from src.core.orchestrator import ProctoringSystem
+from src.services.face_enrollment import FaceEnrollmentStore
 
 APP_VERSION = "2.0.0"
 APP_NAME = "Moodle Proctoring AI Backend"
@@ -90,10 +95,47 @@ def _init_proctoring_system() -> Optional[ProctoringSystem]:
         set_proctoring_system(system)
         set_moodle_proctoring_system(system)
         logger.info("Proctoring system initialized successfully")
-        return system
     except Exception:
         logger.exception("Failed to initialize proctoring system")
         return None
+
+    # Enrollment store — keyed on the recognizer's embedding dim when available.
+    try:
+        from config.settings import ENROLLMENT_DB_PATH
+        embedding_dim = 512
+        if system.model_manager and system.model_manager.face_recognizer:
+            embedding_dim = system.model_manager.face_recognizer.embedding_dim
+        store = FaceEnrollmentStore(ENROLLMENT_DB_PATH, embedding_dim=embedding_dim)
+        set_enrollment_store(store)
+    except Exception:
+        logger.exception("Failed to initialize enrollment store")
+
+    return system
+
+
+def _register_openapi_cleaner(app: Flask) -> None:
+    """Flasgger emits both ``swagger: "2.0"`` and ``openapi: "3.0.x"`` in the
+    same document, which Swagger UI refuses to render. Strip the Swagger-2.0
+    leftovers so the spec is pure OpenAPI 3.0."""
+
+    @app.after_request
+    def _strip_swagger_v2_fields(response):
+        if request.path != "/openapi.json":
+            return response
+        if not (response.content_type or "").startswith("application/json"):
+            return response
+        try:
+            data = response.get_json(silent=True)
+            if not isinstance(data, dict):
+                return response
+            if "openapi" in data and "swagger" in data:
+                data.pop("swagger", None)
+                data.pop("definitions", None)
+                response.set_data(json.dumps(data))
+                response.content_length = len(response.get_data())
+        except Exception:
+            logger.exception("Failed to clean OpenAPI spec")
+        return response
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -149,6 +191,19 @@ def _register_root_routes(app: Flask, system: Optional[ProctoringSystem]) -> Non
         except ImportError:
             pass
 
+        models = {}
+        if system is not None and getattr(system, "model_manager", None) is not None:
+            try:
+                info = system.model_manager.get_model_info()
+                models = {
+                    "detector_backend": info["detector"]["backend"],
+                    "detector_loaded": info["detector"]["loaded"],
+                    "recognizer_backend": info["recognizer"]["backend"],
+                    "recognizer_loaded": info["recognizer"]["loaded"],
+                }
+            except Exception:
+                logger.exception("Could not collect model info for /health")
+
         return jsonify({
             "status": "healthy",
             "service": "proctoring-ai-backend",
@@ -161,6 +216,7 @@ def _register_root_routes(app: Flask, system: Optional[ProctoringSystem]) -> Non
                 "eye_tracker": system is not None and system.eye_tracker is not None,
                 "model_manager": system is not None and system.model_manager is not None,
             },
+            "models": models,
         }), 200
 
 
@@ -191,6 +247,7 @@ def create_app() -> Flask:
 
     _register_root_routes(app, system)
     _register_error_handlers(app)
+    _register_openapi_cleaner(app)
 
     logger.info(
         "%s v%s ready (env=%s, debug=%s)",

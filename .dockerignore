@@ -30,6 +30,7 @@ env/
 logs/
 reports/
 frames_output/
+data/
 *.log
 *.jpg
 *.jpeg
