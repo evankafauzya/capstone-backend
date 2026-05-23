@@ -43,6 +43,11 @@ class ProctoringSystem:
         self.is_running = False
         self.processing_thread = None
         
+        # State for visualizations
+        self.latest_face_detection = None
+        self.latest_eye_tracking = None
+        self.verified_user_id = "user"
+        
         self._initialize_components()
     
     def _initialize_components(self):
@@ -191,6 +196,8 @@ class ProctoringSystem:
                 if self.current_session.check_capture_needed():
                     # Perform face detection
                     face_detection = self.face_detector.detect_faces(frame)
+                    self.latest_face_detection = face_detection  # Store for visualization
+                    
                     self.current_session.record_face_detection(
                         face_count=face_detection["face_count"],
                         face_list=face_detection["faces"],
@@ -206,12 +213,18 @@ class ProctoringSystem:
                 
                 # Check if reverification is needed
                 if self.current_session.check_reverification_needed():
-                    face_detection = self.face_detector.detect_faces(frame)
-                    if face_detection["is_valid"] and face_detection["face_count"] == 1:
-                        self._perform_reverification(frame, face_detection["faces"][0])
+                    # Throttle failed attempts to once per second to prevent CPU overload
+                    current_time = time.time()
+                    if not hasattr(self, 'last_reverif_attempt') or current_time - getattr(self, 'last_reverif_attempt', 0) >= 1.0:
+                        self.last_reverif_attempt = current_time
+                        face_detection = self.face_detector.detect_faces(frame)
+                        if face_detection["is_valid"] and face_detection["face_count"] == 1:
+                            self._perform_reverification(frame, face_detection["faces"][0])
                 
                 # Perform eye tracking
                 eye_tracking = self.eye_tracker.detect_eyes(frame)
+                self.latest_eye_tracking = eye_tracking  # Store for visualization
+                
                 if eye_tracking["eyes_detected"]:
                     self.current_session.record_eye_tracking(
                         gaze_direction=eye_tracking["gaze_direction"],
@@ -241,6 +254,8 @@ class ProctoringSystem:
                 face_id="user_face_001",
                 confidence=0.92
             )
+            if verification_result.verified:
+                self.verified_user_id = self.current_session.user_id
             
             logger.info(f"Verification result: {verification_result.verified}")
         
@@ -267,8 +282,38 @@ class ProctoringSystem:
             logger.error(f"Error in reverification: {e}")
     
     def get_current_frame(self):
-        """Get current frame from webcam"""
-        return self.webcam.get_frame() if self.webcam else None
+        """Get current frame from webcam and draw annotations"""
+        if not self.webcam:
+            return None
+            
+        frame = self.webcam.get_frame()
+        if frame is None:
+            return None
+            
+        # Add annotations to the frame
+        try:
+            import cv2
+            
+            # Draw face detection bounding boxes
+            if getattr(self, 'latest_face_detection', None) and self.latest_face_detection.get("is_valid"):
+                for face in self.latest_face_detection.get("faces", []):
+                    if isinstance(face, dict):
+                        x, y, w, h = face.get('x', 0), face.get('y', 0), face.get('w', 0), face.get('h', 0)
+                    elif isinstance(face, (list, tuple)) and len(face) >= 4:
+                        x, y, w, h = face[0], face[1], face[2], face[3]
+                    else:
+                        continue
+                        
+                    # Draw bounding box
+                    cv2.rectangle(frame, (int(x), int(y)), (int(x+w), int(y+h)), (0, 255, 0), 2)
+                    
+                    # Draw user name
+                    user_name = getattr(self, 'verified_user_id', 'Unknown')
+                    cv2.putText(frame, f"{user_name}", (int(x), int(y) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        except Exception as e:
+            logger.error(f"Error annotating frame: {e}")
+            
+        return frame
     
     def get_session_status(self) -> Optional[Dict]:
         """Get current session status"""

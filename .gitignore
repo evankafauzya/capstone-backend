@@ -1,9 +1,12 @@
-# Environments
-venv/
-env/
+# ---- Secrets (NEVER COMMIT) ------------------------------------------------
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
 
-# Python
+# ---- Python ----------------------------------------------------------------
 __pycache__/
 *.pyc
 *.pyo
@@ -25,29 +28,43 @@ wheels/
 .installed.cfg
 *.egg
 
-# Data and Models
+# ---- Virtual environments --------------------------------------------------
+venv/
+env/
+.venv/
+
+# ---- Models & data ---------------------------------------------------------
 models_data/*.pth
 models_data/*.pkl
 models_data/*.task
 models_data/*.h5
 models_data/*.pb
 
-# Logs and Reports
+# ---- Runtime artifacts -----------------------------------------------------
 logs/
 reports/
+frames_output/
 
-# Media
+# ---- Media -----------------------------------------------------------------
 *.jpg
 *.jpeg
 *.png
 *.mp4
+current_frame.jpg
+debug.jpg
 
-# IDEs
+# ---- Tooling ---------------------------------------------------------------
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# OS files
+# ---- OS --------------------------------------------------------------------
 .DS_Store
 Thumbs.db

@@ -137,9 +137,12 @@ class ProctoringSession:
         """
         current_time = time.time()
         
+        # Determine if verification is successful
+        verified = confidence >= 0.6  # Threshold
+        
         result = VerificationResult(
-            verified=confidence >= 0.6,  # Threshold
-            face_id=face_id if result.verified else None,
+            verified=verified,
+            face_id=face_id if verified else None,
             confidence=confidence,
             timestamp=current_time,
             details={
@@ -192,9 +195,12 @@ class ProctoringSession:
         """
         current_time = time.time()
         
+        # Determine if reverification is successful
+        verified = confidence >= 0.5 and face_id == self.current_user_face_id
+        
         result = VerificationResult(
-            verified=confidence >= 0.5 and face_id == self.current_user_face_id,
-            face_id=face_id if result.verified else None,
+            verified=verified,
+            face_id=face_id if verified else None,
             confidence=confidence,
             timestamp=current_time,
             details={

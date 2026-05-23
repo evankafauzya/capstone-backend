@@ -86,15 +86,15 @@ class ModelManager:
                 checkpoint = torch.load(self.detection_model_path, map_location=self.device)
                 if isinstance(checkpoint, dict):
                     if 'model_state_dict' in checkpoint:
-                        self.detection_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+                        self.detection_model.load_state_dict(checkpoint['model_state_dict'], strict=True)
                     elif 'model_state' in checkpoint:
-                        self.detection_model.load_state_dict(checkpoint['model_state'], strict=False)
+                        self.detection_model.load_state_dict(checkpoint['model_state'], strict=True)
                     elif 'state_dict' in checkpoint:
-                        self.detection_model.load_state_dict(checkpoint['state_dict'], strict=False)
+                        self.detection_model.load_state_dict(checkpoint['state_dict'], strict=True)
                     else:
-                        self.detection_model.load_state_dict(checkpoint, strict=False)
+                        self.detection_model.load_state_dict(checkpoint, strict=True)
                 else:
-                    self.detection_model.load_state_dict(checkpoint, strict=False)
+                    self.detection_model.load_state_dict(checkpoint, strict=True)
                 
                 self.detection_model.to(self.device)
                 self.detection_model.eval()
@@ -106,8 +106,10 @@ class ModelManager:
                     cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
                 )
         except Exception as e:
-            logger.error(f"Error loading detection model: {e}")
-            raise
+            logger.error(f"Error loading detection model: {e}. Falling back to OpenCV Cascade.")
+            self.detection_model = cv2.CascadeClassifier(
+                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            )
     
     def detect_faces(self, frame: np.ndarray, confidence_threshold: float = 0.5):
         """

@@ -36,8 +36,7 @@ class WebcamCapture:
         self.frame_lock = Lock()
         self.frame_queue = Queue(maxsize=10)
         self.capture_thread = None
-        
-        self._initialize_camera()
+        # Camera is now initialized in start() instead of __init__
     
     def _initialize_camera(self):
         """Initialize camera with desired settings"""
@@ -64,7 +63,13 @@ class WebcamCapture:
         if self.is_running:
             logger.warning("Capture already running")
             return
-        
+            
+        try:
+            self._initialize_camera()
+        except Exception as e:
+            logger.error(f"Failed to initialize camera in start(): {e}")
+            return
+            
         self.is_running = True
         self.capture_thread = Thread(target=self._capture_loop, daemon=True)
         self.capture_thread.start()
@@ -78,6 +83,7 @@ class WebcamCapture:
         
         if self.cap:
             self.cap.release()
+            self.cap = None
         
         logger.info("Webcam capture stopped")
     
@@ -144,7 +150,13 @@ class WebcamCapture:
     def get_camera_info(self) -> Dict:
         """Get camera information"""
         if self.cap is None:
-            return {"error": "Camera not initialized"}
+            return {
+                "camera_id": self.camera_id,
+                "resolution": self.resolution,
+                "fps": self.fps,
+                "status": "Not initialized (starts with session)",
+                "is_running": False
+            }
         
         try:
             width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))

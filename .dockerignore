@@ -1,0 +1,55 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+venv/
+env/
+.venv/
+
+# Local secrets / IDE
+.env
+.env.local
+.idea/
+.vscode/
+
+# Local artifacts
+logs/
+reports/
+frames_output/
+*.log
+*.jpg
+*.jpeg
+*.png
+*.mp4
+current_frame.jpg
+debug.jpg
+
+# Pre-trained models (mount as volume instead of baking into image)
+models_data/*.pth
+models_data/*.pkl
+models_data/*.task
+models_data/*.h5
+models_data/*.pb
+
+# Docs & test scripts that don't ship in the image
+*.md
+!README.md
+test_*.py
+
+# OS
+.DS_Store
+Thumbs.db
