@@ -17,6 +17,7 @@ pillow>=11.0.0
 torch>=2.0.0
 torchvision>=0.15.0
 torchaudio>=2.0.0
+ultralytics>=8.3,<9.0
 
 # ---- Reporting / utils -----------------------------------------------------
 reportlab>=4.1.0

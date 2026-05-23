@@ -43,6 +43,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # Workers and threads can be tuned via env at runtime.
 ENV GUNICORN_WORKERS=2 \
     GUNICORN_THREADS=4 \
-    GUNICORN_TIMEOUT=120
+    GUNICORN_TIMEOUT=120 \
+    YOLO_VERBOSE=False \
+    YOLO_OFFLINE=1
 
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers ${GUNICORN_WORKERS} --threads ${GUNICORN_THREADS} --timeout ${GUNICORN_TIMEOUT} --access-logfile - --error-logfile - wsgi:app"]
