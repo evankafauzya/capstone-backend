@@ -54,10 +54,18 @@ class ProctoringSystem:
         """Initialize all system components"""
         try:
             # Initialize model manager
-            recognition_model = f"{self.models_dir}/face_recognition_model.pkl"
-            detection_model = f"{self.models_dir}/face_detection_model.pth"
-            
-            self.model_manager = ModelManager(recognition_model, detection_model)
+            from config.settings import (
+                FACE_DETECTION_MODEL,
+                FACE_DETECTION_YOLO_MODEL,
+                FACE_RECOGNITION_MODEL,
+                ProctoringConfig,
+            )
+            self.model_manager = ModelManager(
+                recognition_model_path=FACE_RECOGNITION_MODEL,
+                detection_model_path=FACE_DETECTION_MODEL,
+                yolo_detection_model_path=FACE_DETECTION_YOLO_MODEL,
+                match_threshold=ProctoringConfig.FACE_MATCH_THRESHOLD,
+            )
             logger.info("Model manager initialized")
             
             # Initialize face detector

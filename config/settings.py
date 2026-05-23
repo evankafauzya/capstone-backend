@@ -78,12 +78,20 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = os.getenv("MODELS_DIR", os.path.join(BASE_DIR, "models_data"))
 REPORTS_DIR = os.getenv("REPORTS_DIR", os.path.join(BASE_DIR, "reports"))
 LOGS_DIR = os.getenv("LOGS_DIR", os.path.join(BASE_DIR, "logs"))
+DATA_DIR = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
 
-for _dir in (MODELS_DIR, REPORTS_DIR, LOGS_DIR):
+for _dir in (MODELS_DIR, REPORTS_DIR, LOGS_DIR, DATA_DIR):
     os.makedirs(_dir, exist_ok=True)
 
-FACE_RECOGNITION_MODEL = os.path.join(MODELS_DIR, "face_recognition_model.pkl")
+ENROLLMENT_DB_PATH = os.getenv(
+    "ENROLLMENT_DB_PATH", os.path.join(DATA_DIR, "enrollments.db")
+)
+
+FACE_RECOGNITION_MODEL = os.path.join(MODELS_DIR, "face_recognition_model.pth")
 FACE_DETECTION_MODEL = os.path.join(MODELS_DIR, "face_detection_model.pth")
+# YOLO face-detection checkpoint (Ultralytics). Used in preference to
+# RetinaFace when present.
+FACE_DETECTION_YOLO_MODEL = os.path.join(MODELS_DIR, "face_detection_yolo.pt")
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +106,10 @@ class ProctoringConfig:
     EYE_ASPECT_RATIO_THRESHOLD = float(os.getenv("EYE_ASPECT_RATIO_THRESHOLD", "0.2"))
 
     FACE_DETECTION_CONFIDENCE = float(os.getenv("FACE_DETECTION_CONFIDENCE", "0.5"))
-    FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.6"))
+    # Cosine-similarity threshold for ArcFace verification. 0.4 is a good
+    # balance for webcam-vs-registered photo comparisons; tighten to 0.5+
+    # only if registration and capture come from the same source.
+    FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.4"))
     MAX_FACES_ALLOWED = int(os.getenv("MAX_FACES_ALLOWED", "1"))
 
     DB_HOST = os.getenv("DB_HOST", "localhost")

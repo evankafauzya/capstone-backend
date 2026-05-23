@@ -96,29 +96,33 @@ class FaceDetector:
     
     def draw_face_boxes(self, frame: np.ndarray, faces: List) -> np.ndarray:
         """
-        Draw bounding boxes around detected faces
-        
+        Draw bounding boxes around detected faces.
+
         Args:
-            frame: Input frame
-            faces: List of face bounding boxes [(x, y, w, h), ...]
-            
-        Returns:
-            Frame with drawn boxes
+            frame: Input frame.
+            faces: List of face dicts with keys x, y, w, h, confidence,
+                landmarks (as produced by ``ModelManager.detect_faces``).
+                Tuples ``(x, y, w, h)`` are also accepted for backward
+                compatibility.
         """
         output_frame = frame.copy()
-        
-        for (x, y, w, h) in faces:
+
+        for idx, face in enumerate(faces):
+            if isinstance(face, dict):
+                x, y, w, h = face["x"], face["y"], face["w"], face["h"]
+                conf = face.get("confidence")
+            else:
+                x, y, w, h = face[0], face[1], face[2], face[3]
+                conf = None
+
             color = (0, 255, 0) if len(faces) <= self.max_faces else (0, 0, 255)
-            thickness = 2
-            cv2.rectangle(output_frame, (x, y), (x + w, y + h), color, thickness)
+            cv2.rectangle(output_frame, (x, y), (x + w, y + h), color, 2)
+            label = f"Face {idx + 1}"
+            if conf is not None:
+                label += f" {conf:.2f}"
             cv2.putText(
-                output_frame, 
-                f"Face {faces.index((x, y, w, h)) + 1}", 
-                (x, y - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 
-                0.7, 
-                color, 
-                2
+                output_frame, label, (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
             )
         
         # Add warning text if multiple faces or no face
