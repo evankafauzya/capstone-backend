@@ -13,7 +13,12 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    # Type-only import; never executed at runtime so it cannot trigger
+    # torch / torchvision in MOCK_MODELS=1 mode.
+    from src.core.orchestrator import ProctoringSystem
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -33,6 +38,17 @@ from config.settings import (
     LOGGING_CONFIG,
     PORT,
 )
+from src.api.moodle_routes import (
+    moodle_api, set_audit_store, set_enrollment_store, set_moodle_proctoring_system,
+)
+from src.api.proctoring_routes import proctoring_api, set_proctoring_system
+from src.services.audit import VerificationAuditStore
+from src.services.face_enrollment import FaceEnrollmentStore
+
+# Note: ``src.core.orchestrator`` is imported lazily inside
+# ``_init_proctoring_system()`` -- it pulls in torch / torchvision via the
+# model manager, and we want MOCK_MODELS=1 mode (CI, fast unit tests) to
+# run without those packages being installed.
 
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger(__name__)
@@ -42,14 +58,6 @@ logger = logging.getLogger(__name__)
 # this floods the console. Keep only warnings.
 logging.getLogger("watchfiles").setLevel(logging.WARNING)
 logging.getLogger("watchfiles.main").setLevel(logging.WARNING)
-
-from src.api.proctoring_routes import proctoring_api, set_proctoring_system
-from src.api.moodle_routes import (
-    moodle_api, set_audit_store, set_enrollment_store, set_moodle_proctoring_system,
-)
-from src.core.orchestrator import ProctoringSystem
-from src.services.audit import VerificationAuditStore
-from src.services.face_enrollment import FaceEnrollmentStore
 
 APP_VERSION = "2.0.0"
 APP_NAME = "Moodle Proctoring AI Backend"
@@ -103,6 +111,10 @@ def _init_proctoring_system() -> Optional[ProctoringSystem]:
             return None
     else:
         try:
+            # Lazy import: torch / torchvision come in via this module.
+            # Keeping it out of the module top-level lets MOCK_MODELS=1
+            # mode (CI, fast unit tests) run without those packages.
+            from src.core.orchestrator import ProctoringSystem
             system = ProctoringSystem()
             set_proctoring_system(system)
             set_moodle_proctoring_system(system)

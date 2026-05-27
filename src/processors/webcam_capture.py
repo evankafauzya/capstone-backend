@@ -106,12 +106,12 @@ class WebcamCapture:
                         # Try to add to queue without blocking
                         try:
                             self.frame_queue.put_nowait(frame.copy())
-                        except:
+                        except Exception:
                             # Queue is full, discard oldest frame
                             try:
                                 self.frame_queue.get_nowait()
                                 self.frame_queue.put_nowait(frame.copy())
-                            except:
+                            except Exception:
                                 pass
                         
                         last_capture_time = current_time
@@ -144,7 +144,7 @@ class WebcamCapture:
         """
         try:
             return self.frame_queue.get_nowait()
-        except:
+        except Exception:
             return None
     
     def get_camera_info(self) -> Dict:
