@@ -20,6 +20,8 @@ from itertools import product as _product
 from math import ceil
 from typing import Tuple
 
+from ._torch_load import safe_torch_load
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -329,7 +331,7 @@ def load_retinaface(checkpoint_path: str, device: torch.device) -> Tuple[RetinaF
 
     Returns (model, cfg).
     """
-    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    ckpt = safe_torch_load(checkpoint_path, map_location=device)
 
     if isinstance(ckpt, dict):
         cfg = ckpt.get("cfg") or CFG_MNET

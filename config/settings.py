@@ -87,7 +87,7 @@ ENROLLMENT_DB_PATH = os.getenv(
     "ENROLLMENT_DB_PATH", os.path.join(DATA_DIR, "enrollments.db")
 )
 
-FACE_RECOGNITION_MODEL = os.path.join(MODELS_DIR, "face_recognition_model.pth")
+FACE_RECOGNITION_MODEL = os.path.join(MODELS_DIR, "face_recognition_efficient.pth")
 FACE_DETECTION_MODEL = os.path.join(MODELS_DIR, "face_detection_model.pth")
 # YOLO face-detection checkpoint (Ultralytics). Used in preference to
 # RetinaFace when present.

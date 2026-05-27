@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import cv2
 import mediapipe as mp
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 

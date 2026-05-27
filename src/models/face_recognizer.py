@@ -14,14 +14,14 @@ Pipeline:
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .arcface import FaceEmbeddingNet, load_face_embedding_net
+from .arcface import load_face_embedding_net
 from .face_aligner import FaceAligner
 
 logger = logging.getLogger(__name__)

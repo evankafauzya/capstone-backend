@@ -5,7 +5,7 @@ Detects faces in frames and provides warnings for missing or multiple faces
 import logging
 import numpy as np
 import cv2
-from typing import List, Dict, Tuple
+from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 

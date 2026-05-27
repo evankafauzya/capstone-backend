@@ -40,11 +40,12 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://localhost:5000/health || exit 1
 
-# Workers and threads can be tuned via env at runtime.
-ENV GUNICORN_WORKERS=2 \
-    GUNICORN_THREADS=4 \
+# Single Uvicorn worker behind Gunicorn: FastAPI runs sync handlers on a
+# thread pool, and each worker process loads ~1 GB of model weights, so
+# multiple workers would multiply memory without adding throughput.
+ENV GUNICORN_WORKERS=1 \
     GUNICORN_TIMEOUT=120 \
     YOLO_VERBOSE=False \
     YOLO_OFFLINE=1
 
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers ${GUNICORN_WORKERS} --threads ${GUNICORN_THREADS} --timeout ${GUNICORN_TIMEOUT} --access-logfile - --error-logfile - wsgi:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers ${GUNICORN_WORKERS} --worker-class uvicorn.workers.UvicornWorker --timeout ${GUNICORN_TIMEOUT} --access-logfile - --error-logfile - asgi:app"]

@@ -17,7 +17,6 @@ import numpy as np
 import torch
 
 from .retinaface import (
-    CFG_MNET,
     PriorBox,
     decode_boxes,
     decode_landms,

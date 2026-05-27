@@ -4,11 +4,9 @@ Orchestrates the complete proctoring process including verification, monitoring,
 """
 import logging
 import time
-from typing import Dict, List, Tuple, Optional
-from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 from enum import Enum
-import json
 
 logger = logging.getLogger(__name__)
 

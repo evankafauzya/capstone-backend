@@ -163,8 +163,6 @@ class ProctoringSystem:
             
             logger.info(f"Session {self.current_session.session_id} stopped")
             logger.info(f"Reports generated: {report_paths}")
-            
-            session_id = self.current_session.session_id
             self.current_session = None
             
             return {
@@ -214,10 +212,10 @@ class ProctoringSystem:
                     )
                     
                     # Handle initial verification if needed
-                    if (self.current_session.status.value == "verifying" and 
+                    if (self.current_session.status.value == "verifying" and
                         face_detection["is_valid"] and face_detection["face_count"] == 1):
                         # Perform initial verification
-                        self._perform_verification(frame, face_detection["faces"][0])
+                        self._perform_verification()
                 
                 # Check if reverification is needed
                 if self.current_session.check_reverification_needed():
@@ -227,7 +225,7 @@ class ProctoringSystem:
                         self.last_reverif_attempt = current_time
                         face_detection = self.face_detector.detect_faces(frame)
                         if face_detection["is_valid"] and face_detection["face_count"] == 1:
-                            self._perform_reverification(frame, face_detection["faces"][0])
+                            self._perform_reverification()
                 
                 # Perform eye tracking
                 eye_tracking = self.eye_tracker.detect_eyes(frame)
@@ -249,43 +247,36 @@ class ProctoringSystem:
         
         logger.info("Processing loop ended")
     
-    def _perform_verification(self, frame, face_box):
-        """Perform initial user verification"""
+    def _perform_verification(self):
+        """Advance the in-process session into the 'verified' state.
+
+        NOTE: this is a session-state hook only. The real face matching
+        happens via the HTTP API (/verify/face) -- this method just records
+        a successful verification event against the current session so its
+        status machine can progress past 'verifying'.
+        """
         try:
-            x, y, w, h = face_box
-            face_roi = frame[y:y+h, x:x+w]
-            
-            # In a real system, extract face encoding and perform verification
-            # For now, simulate with dummy data
             verification_result = self.current_session.verify_user(
                 face_encoding=None,
                 face_id="user_face_001",
-                confidence=0.92
+                confidence=0.92,
             )
             if verification_result.verified:
                 self.verified_user_id = self.current_session.user_id
-            
+
             logger.info(f"Verification result: {verification_result.verified}")
-        
         except Exception as e:
             logger.error(f"Error in verification: {e}")
-    
-    def _perform_reverification(self, frame, face_box):
-        """Perform user reverification"""
+
+    def _perform_reverification(self):
+        """Periodic re-verification of the session (see _perform_verification note)."""
         try:
-            x, y, w, h = face_box
-            face_roi = frame[y:y+h, x:x+w]
-            
-            # In a real system, extract face encoding and perform verification
-            # For now, simulate with dummy data
             reverification_result = self.current_session.reverify_user(
                 face_encoding=None,
                 face_id="user_face_001",
-                confidence=0.89
+                confidence=0.89,
             )
-            
             logger.info(f"Reverification result: {reverification_result.verified}")
-        
         except Exception as e:
             logger.error(f"Error in reverification: {e}")
     

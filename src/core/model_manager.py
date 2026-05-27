@@ -117,8 +117,9 @@ class ModelManager:
                 device=self.device,
                 match_threshold=self.match_threshold,
             )
+            arch = self.face_recognizer.meta.get("backbone_arch", "unknown")
             self.recognizer_backend = (
-                f"arcface_resnet50_emb{self.face_recognizer.embedding_dim}"
+                f"arcface_{arch}_emb{self.face_recognizer.embedding_dim}"
             )
             logger.info("Recognition backend: %s", self.recognizer_backend)
         except Exception:

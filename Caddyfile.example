@@ -1,0 +1,65 @@
+# Caddyfile -- reverse proxy in front of the Moodle Proctoring AI Backend.
+#
+# Pick ONE of the two blocks below depending on your setup.
+#
+# ---------------------------------------------------------------------------
+# Option A: production with a real domain (Let's Encrypt automatic).
+# Caddy fetches and renews a free TLS cert from Let's Encrypt; you only
+# need to (1) point your DNS A/AAAA records at this server's public IP,
+# and (2) replace `proctoring.example.com` and the email address below.
+# ---------------------------------------------------------------------------
+# proctoring.example.com {
+#     reverse_proxy app:5000
+#
+#     # Security headers — these survive every response back to the browser.
+#     header {
+#         Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+#         X-Content-Type-Options "nosniff"
+#         X-Frame-Options "DENY"
+#         Referrer-Policy "strict-origin-when-cross-origin"
+#         -Server                                  # don't advertise the proxy
+#     }
+#
+#     # Optional: redirect plain HTTP requests on :80 to HTTPS automatically.
+#     # Caddy does this by default when you supply a domain.
+#
+#     # Gzip + zstd encoding so responses are smaller over the wire.
+#     encode gzip zstd
+#
+#     # Reasonable upload cap — line up with MAX_BODY_BYTES in app.py (50 MB).
+#     request_body {
+#         max_size 50MB
+#     }
+# }
+#
+# # Tell Caddy where to send ACME emails (renewal reminders, breach notices).
+# {
+#     email admin@example.com
+# }
+
+
+# ---------------------------------------------------------------------------
+# Option B: local development / private network (Caddy's internal CA).
+# No public DNS needed. Caddy issues a self-signed cert that browsers
+# WILL warn about — you can trust it locally by running:
+#
+#     docker exec -it <caddy-container-id> cat /data/caddy/pki/authorities/local/root.crt
+#
+# and importing that root cert into your browser / OS trust store.
+# ---------------------------------------------------------------------------
+:443 {
+    tls internal
+    reverse_proxy app:5000
+
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        -Server
+    }
+
+    encode gzip zstd
+}
+
+:80 {
+    redir https://{host}{uri} permanent
+}

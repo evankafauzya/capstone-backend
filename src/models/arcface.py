@@ -22,22 +22,65 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import resnet50
+from torchvision.models import efficientnet_b0, resnet50
+
+from ._torch_load import safe_torch_load
 
 logger = logging.getLogger(__name__)
 
+# Map of supported backbones -> (factory function, feature dim after avgpool).
+# Both backbones share the same ``features + avgpool`` slicing pattern: take
+# everything except the final classification head, then feed through the neck.
+_BACKBONES = {
+    "resnet50":        (resnet50, 2048),
+    "efficientnet_b0": (efficientnet_b0, 1280),
+}
+
 
 class FaceEmbeddingNet(nn.Module):
-    """ResNet50 backbone + projection neck -> L2-normalized embedding."""
+    """Backbone + projection neck -> L2-normalized embedding.
 
-    def __init__(self, embedding_dim: int = 512):
+    Two backbones are supported, each with a slightly different ``features`` /
+    ``neck`` layout that matches how the training notebooks were written:
+
+    * ``resnet50``:        ``features = list(base.children())[:-1]`` (includes
+      avgpool), and ``neck.0`` is just a Flatten.
+    * ``efficientnet_b0``: ``features = base.features`` (no avgpool), and
+      ``neck.0`` is a Sequential(AdaptiveAvgPool2d, Flatten) that reshapes
+      the 4D feature map to 2D before the BN/Linear chain.
+
+    Both end in: BN(feature_dim) -> Linear(feature_dim, embedding_dim) ->
+    BN(embedding_dim) -> L2 normalize.
+    """
+
+    def __init__(self, embedding_dim: int = 512, backbone_arch: str = "resnet50"):
         super().__init__()
-        base = resnet50(weights=None)  # weights loaded from checkpoint
-        self.features = nn.Sequential(*list(base.children())[:-1])
+        if backbone_arch not in _BACKBONES:
+            raise ValueError(
+                f"Unsupported backbone_arch '{backbone_arch}'. "
+                f"Choose one of {sorted(_BACKBONES)}."
+            )
+        factory, feature_dim = _BACKBONES[backbone_arch]
+        base = factory(weights=None)  # weights loaded from checkpoint
+
+        if backbone_arch == "resnet50":
+            self.features = nn.Sequential(*list(base.children())[:-1])
+            pool_then_flatten: nn.Module = nn.Flatten()
+        elif backbone_arch == "efficientnet_b0":
+            self.features = base.features
+            pool_then_flatten = nn.Sequential(
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(),
+            )
+        else:
+            raise AssertionError(f"unreachable: {backbone_arch}")
+
+        self.backbone_arch = backbone_arch
+        self.feature_dim = feature_dim
         self.neck = nn.Sequential(
-            nn.Flatten(),
-            nn.BatchNorm1d(2048),
-            nn.Linear(2048, embedding_dim, bias=False),
+            pool_then_flatten,
+            nn.BatchNorm1d(feature_dim),
+            nn.Linear(feature_dim, embedding_dim, bias=False),
             nn.BatchNorm1d(embedding_dim),
         )
 
@@ -45,6 +88,25 @@ class FaceEmbeddingNet(nn.Module):
         x = self.features(x)
         x = self.neck(x)
         return F.normalize(x, p=2, dim=1)
+
+
+def _detect_backbone(backbone_sd: dict) -> str:
+    """Infer which backbone produced this state_dict by looking at the neck.
+
+    ``neck.2.weight`` is the projection Linear -- its second dim is the
+    backbone's feature dim. 2048 = ResNet50, 1280 = EfficientNet-B0.
+    """
+    w = backbone_sd.get("neck.2.weight")
+    if w is None:
+        return "resnet50"  # legacy default
+    in_features = int(w.shape[1])
+    for name, (_factory, dim) in _BACKBONES.items():
+        if dim == in_features:
+            return name
+    raise ValueError(
+        f"Unrecognized projection input dim {in_features}. "
+        f"Known: {[d for _, d in _BACKBONES.values()]}"
+    )
 
 
 def load_face_embedding_net(
@@ -62,7 +124,7 @@ def load_face_embedding_net(
       - arc_head_weight (the class centers used for identification), if stored
       - best_val_acc
     """
-    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    ckpt = safe_torch_load(checkpoint_path, map_location=device)
 
     if not isinstance(ckpt, dict):
         raise ValueError(
@@ -79,7 +141,10 @@ def load_face_embedding_net(
             f"Checkpoint at {checkpoint_path} has no 'backbone' state_dict"
         )
 
-    model = FaceEmbeddingNet(embedding_dim=embedding_dim)
+    backbone_arch = cfg.get("backbone") or _detect_backbone(backbone_sd)
+    model = FaceEmbeddingNet(
+        embedding_dim=embedding_dim, backbone_arch=backbone_arch,
+    )
     model.load_state_dict(backbone_sd, strict=True)
     model.eval().to(device)
 
@@ -91,12 +156,15 @@ def load_face_embedding_net(
     meta = {
         "embedding_dim": embedding_dim,
         "img_size": img_size,
-        "best_val_acc": float(ckpt.get("best_val_acc", 0.0)),
+        "best_val_acc": float(ckpt.get("best_val_acc") or 0.0),
         "num_classes": int(arc_weight.shape[0]) if arc_weight is not None else 0,
         "arc_head_weight": arc_weight,
+        "backbone_arch": backbone_arch,
     }
     logger.info(
-        "ArcFace backbone loaded (embedding_dim=%d, num_classes=%d, best_val_acc=%.2f%%)",
-        embedding_dim, meta["num_classes"], meta["best_val_acc"] * 100.0,
+        "ArcFace backbone loaded (arch=%s, embedding_dim=%d, num_classes=%d, "
+        "best_val_acc=%.2f%%)",
+        backbone_arch, embedding_dim, meta["num_classes"],
+        meta["best_val_acc"] * 100.0,
     )
     return model, label_to_name, meta

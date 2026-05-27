@@ -1,0 +1,43 @@
+# Overlay compose file that puts Caddy in front of the app with TLS.
+# Use with:
+#     cp Caddyfile.example Caddyfile      # edit for your domain
+#     docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build
+#
+# With this overlay:
+#   - The app container no longer publishes port 5000 to the host directly.
+#   - Caddy listens on :80 + :443 and reverse-proxies to app:5000 over the
+#     compose-internal network.
+#   - Caddy stores ACME / cert state in named volumes so renewals survive
+#     restarts.
+
+services:
+  app:
+    # Remove the host port mapping so :5000 is only reachable from Caddy.
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: proctoring-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 (QUIC)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  caddy_data:
+  caddy_config:
