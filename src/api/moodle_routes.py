@@ -22,6 +22,7 @@ import numpy as np
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 
+from config.settings import ProctoringConfig
 from src.api.auth import require_api_key
 from src.api.schemas import (
     BatchProcessRequest,
@@ -273,11 +274,6 @@ def verify_face(body: VerifyFaceRequest, request: Request):
             503, details=_backend_label(),
         )
 
-    try:
-        current_frame = decode_base64_image(body.current_face)
-    except ValueError as exc:
-        return _err(str(exc), 400)
-
     threshold = float(
         body.options.match_threshold
         if body.options.match_threshold is not None
@@ -287,27 +283,51 @@ def verify_face(body: VerifyFaceRequest, request: Request):
 
     start = time.time()
 
-    # ---- detect and crop the current face ----
-    cur_faces = _detect(current_frame, confidence_threshold=0.8)
-    if not cur_faces:
+    # ---- gather the current capture: one frame, or several to beat glare ----
+    # Each frame is embedded and the best-scoring one wins later, so a single
+    # glare-free frame can carry the match even when glasses reflect light in
+    # the others. The detection gate is deliberately permissive (see
+    # ProctoringConfig.VERIFY_DETECTION_CONFIDENCE).
+    frames_b64 = (
+        list(body.current_frames) if body.current_frames
+        else ([body.current_face] if body.current_face else [])
+    )
+    if not frames_b64:
+        return _err("Provide either 'current_face' or 'current_frames'.", 400)
+    frames_b64 = frames_b64[: ProctoringConfig.MAX_VERIFY_FRAMES]
+
+    det_conf = ProctoringConfig.VERIFY_DETECTION_CONFIDENCE
+    cur_embs: List[np.ndarray] = []
+    for fb in frames_b64:
+        try:
+            frame = decode_base64_image(fb)
+        except ValueError as exc:
+            return _err(str(exc), 400)
+        faces = _detect(frame, confidence_threshold=det_conf)
+        if not faces:
+            continue
+        crop = _crop_first_face(frame, faces)
+        if crop is None:
+            continue
+        cur_embs.append(mm.embed_face(crop))
+
+    frames_submitted = len(frames_b64)
+    frames_with_face = len(cur_embs)
+
+    if frames_with_face == 0:
         _record_audit(request, user_id=body.user_id, method="no_face",
                       match_score=0.0, threshold=threshold, matched=False,
                       reason="no_face_in_current_frame")
         return {
             "is_match": False, "match_score": 0.0, "confidence": 0.0,
-            "details": {"reason": "no_face_in_current_frame"},
-        }
-    cur_crop = _crop_first_face(current_frame, cur_faces)
-    if cur_crop is None:
-        _record_audit(request, user_id=body.user_id, method="no_face",
-                      match_score=0.0, threshold=threshold, matched=False,
-                      reason="invalid_face_crop")
-        return {
-            "is_match": False, "match_score": 0.0, "confidence": 0.0,
-            "details": {"reason": "invalid_face_crop"},
+            "details": {
+                "reason": "no_face_in_current_frame",
+                "frames_submitted": frames_submitted,
+                "frames_with_face": 0,
+            },
         }
 
-    emb_cur = mm.embed_face(cur_crop)
+    cur_stack = np.stack(cur_embs, axis=0)  # [frames, embedding_dim]
 
     # ---- branch: stored references vs single reference ----
     if has_user_id:
@@ -328,18 +348,23 @@ def verify_face(body: VerifyFaceRequest, request: Request):
                 404, user_id=user_id,
             )
 
-        scores = ref_embs @ emb_cur
-        best_idx = int(np.argmax(scores))
-        score = float(scores[best_idx])
-        mean_score = float(np.mean(scores))
+        # Best similarity over (reference x frame). Taking the max across
+        # frames lets a single glare-free frame carry the match.
+        score_matrix = ref_embs @ cur_stack.T     # [references, frames]
+        per_ref_best = score_matrix.max(axis=1)   # [references]
+        best_ref_idx = int(np.argmax(per_ref_best))
+        best_frame_idx = int(np.argmax(score_matrix[best_ref_idx]))
+        score = float(per_ref_best[best_ref_idx])
+        mean_score = float(np.mean(per_ref_best))
         is_match = score >= threshold
+        emb_best = cur_stack[best_frame_idx]
 
         logger.info(
             "verify_face[user_id=%s]: best=%.4f mean=%.4f threshold=%.2f "
-            "match=%s (current_box=%dx%d, references=%d, best_ref=%s)",
+            "match=%s (frames=%d/%d, references=%d, best_ref=%s, best_frame=%d)",
             user_id, score, mean_score, threshold, is_match,
-            cur_crop.shape[1], cur_crop.shape[0],
-            ref_embs.shape[0], ref_ids[best_idx],
+            frames_with_face, frames_submitted,
+            ref_embs.shape[0], ref_ids[best_ref_idx], best_frame_idx,
         )
 
         payload = {
@@ -352,20 +377,23 @@ def verify_face(body: VerifyFaceRequest, request: Request):
                 "processing_time_ms": round((time.time() - start) * 1000.0, 2),
                 "user_id": user_id,
                 "references_compared": int(ref_embs.shape[0]),
-                "best_reference_id": ref_ids[best_idx],
+                "best_reference_id": ref_ids[best_ref_idx],
                 "best_score": round(score, 4),
                 "mean_score": round(mean_score, 4),
-                "all_scores": [round(float(s), 4) for s in scores],
+                "all_scores": [round(float(s), 4) for s in per_ref_best],
+                "frames_submitted": frames_submitted,
+                "frames_with_face": frames_with_face,
+                "best_frame_index": best_frame_idx,
                 "embedding_dim": mm.face_recognizer.embedding_dim,
                 "backend": _backend_label(),
             },
         }
         if return_embeddings:
-            payload["embeddings"] = {"current": emb_cur.tolist()}
+            payload["embeddings"] = {"current": emb_best.tolist()}
         _record_audit(request, user_id=user_id, method="user_id",
                       match_score=score, threshold=threshold, matched=is_match,
                       references_compared=int(ref_embs.shape[0]),
-                      best_reference_id=ref_ids[best_idx])
+                      best_reference_id=ref_ids[best_ref_idx])
         return payload
 
     # ---- single-reference (legacy) mode ----
@@ -374,11 +402,7 @@ def verify_face(body: VerifyFaceRequest, request: Request):
     except ValueError as exc:
         return _err(str(exc), 400)
 
-    ref_faces = _detect(reference_frame, confidence_threshold=0.8)
-    logger.info(
-        "verify_face: detected %d face(s) in current, %d in reference",
-        len(cur_faces), len(ref_faces),
-    )
+    ref_faces = _detect(reference_frame, confidence_threshold=det_conf)
     if not ref_faces:
         _record_audit(request, user_id=None, method="reference_face",
                       match_score=0.0, threshold=threshold, matched=False,
@@ -399,13 +423,16 @@ def verify_face(body: VerifyFaceRequest, request: Request):
         }
 
     emb_ref = mm.embed_face(ref_crop)
-    score = float(np.dot(emb_cur, emb_ref))
+    scores = cur_stack @ emb_ref              # [frames]
+    best_frame_idx = int(np.argmax(scores))
+    score = float(scores[best_frame_idx])
     is_match = score >= threshold
+    emb_best = cur_stack[best_frame_idx]
     logger.info(
         "verify_face: score=%.4f threshold=%.2f match=%s "
-        "(current_box=%dx%d, reference_box=%dx%d)",
+        "(frames=%d/%d, best_frame=%d, reference_box=%dx%d)",
         score, threshold, is_match,
-        cur_crop.shape[1], cur_crop.shape[0],
+        frames_with_face, frames_submitted, best_frame_idx,
         ref_crop.shape[1], ref_crop.shape[0],
     )
 
@@ -419,13 +446,16 @@ def verify_face(body: VerifyFaceRequest, request: Request):
             "processing_time_ms": round((time.time() - start) * 1000.0, 2),
             "current_face_detected": True,
             "reference_face_detected": True,
+            "frames_submitted": frames_submitted,
+            "frames_with_face": frames_with_face,
+            "best_frame_index": best_frame_idx,
             "embedding_dim": mm.face_recognizer.embedding_dim,
             "backend": _backend_label(),
         },
     }
     if return_embeddings:
         payload["embeddings"] = {
-            "current": emb_cur.tolist(),
+            "current": emb_best.tolist(),
             "reference": emb_ref.tolist(),
         }
     _record_audit(request, user_id=None, method="reference_face",

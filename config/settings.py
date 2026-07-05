@@ -117,6 +117,16 @@ class ProctoringConfig:
     EYE_ASPECT_RATIO_THRESHOLD = float(os.getenv("EYE_ASPECT_RATIO_THRESHOLD", "0.2"))
 
     FACE_DETECTION_CONFIDENCE = float(os.getenv("FACE_DETECTION_CONFIDENCE", "0.5"))
+    # Detection confidence gate used specifically by /verify/face. Kept low on
+    # purpose: a verification frame is expected to contain the enrolled student,
+    # and glasses glare / screen reflection depress the detector's confidence.
+    # A spurious box simply embeds to a low score and is rejected downstream, so
+    # a permissive gate mainly recovers real faces that glare would drop. This
+    # replaced a previously hard-coded 0.8 gate that discarded glare-affected
+    # faces as "no face detected".
+    VERIFY_DETECTION_CONFIDENCE = float(os.getenv("VERIFY_DETECTION_CONFIDENCE", "0.5"))
+    # Upper bound on frames accepted per /verify/face call in multi-frame mode.
+    MAX_VERIFY_FRAMES = int(os.getenv("MAX_VERIFY_FRAMES", "10"))
     # Cosine-similarity threshold for ArcFace verification. 0.4 is a good
     # balance for webcam-vs-registered photo comparisons; tighten to 0.5+
     # only if registration and capture come from the same source.

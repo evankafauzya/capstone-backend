@@ -66,8 +66,20 @@ class VerifyFaceOptions(BaseModel):
 
 
 class VerifyFaceRequest(BaseModel):
-    """Exactly one of ``reference_face`` / ``user_id`` must be provided."""
-    current_face: str = Field(..., description="Base64 current capture.")
+    """Provide the live capture as ``current_face`` (one frame) **or**
+    ``current_frames`` (several frames; the best-scoring frame wins). Exactly
+    one of ``reference_face`` / ``user_id`` selects what to compare against."""
+    current_face: Optional[str] = Field(
+        default=None, description="Base64 current capture (single frame).",
+    )
+    current_frames: Optional[List[str]] = Field(
+        default=None, min_length=1, max_length=10,
+        description=(
+            "Base64 current captures; the highest-scoring frame is used. Send a "
+            "few frames to survive transient glasses glare / screen reflection "
+            "that would sink a single frame."
+        ),
+    )
     reference_face: Optional[str] = Field(
         default=None, description="Base64 reference image (single-reference mode)."
     )
