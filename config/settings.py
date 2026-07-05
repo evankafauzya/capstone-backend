@@ -72,6 +72,17 @@ CORS_ORIGINS = _csv(os.getenv("CORS_ORIGINS"), ["*"])
 
 
 # ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+# Per-bucket request cap (bucket = API token, or client IP when unauthenticated).
+# slowapi/limits syntax, e.g. "600/minute", "10/second", "100000/minute".
+# Default is production-safe; raise it (or set a very high value) when running
+# a load/capacity test so requests actually reach the compute path instead of
+# being rejected with 429 by the limiter.
+RATE_LIMIT = os.getenv("RATE_LIMIT", "600/minute").strip()
+
+
+# ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -111,12 +122,6 @@ class ProctoringConfig:
     # only if registration and capture come from the same source.
     FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.4"))
     MAX_FACES_ALLOWED = int(os.getenv("MAX_FACES_ALLOWED", "1"))
-
-    DB_HOST = os.getenv("DB_HOST", "localhost")
-    DB_PORT = int(os.getenv("DB_PORT", "5432"))
-    DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-    DB_NAME = os.getenv("DB_NAME", "proctoring_db")
 
 
 class WarningConfig:

@@ -37,6 +37,7 @@ from config.settings import (
     IS_PRODUCTION,
     LOGGING_CONFIG,
     PORT,
+    RATE_LIMIT,
 )
 from src.api.moodle_routes import (
     moodle_api, set_audit_store, set_enrollment_store, set_moodle_proctoring_system,
@@ -81,13 +82,15 @@ def _rate_limit_key(request: Request) -> str:
     return f"ip:{get_remote_address(request)}"
 
 
-# 600 req/min per bucket -> ~10 req/s, plenty for a proctoring poll loop,
-# but low enough to absorb the GPU cost of a brute-force attack.
+# Default 600 req/min per bucket -> ~10 req/s, plenty for a proctoring poll
+# loop, but low enough to absorb the GPU cost of a brute-force attack. The
+# cap is configurable via the RATE_LIMIT env var (see config/settings.py) so
+# it can be raised for load/capacity testing without editing source.
 # /health is exempt via per-route override below so load balancers can poll
 # it freely.
 limiter = Limiter(
     key_func=_rate_limit_key,
-    default_limits=["600/minute"],
+    default_limits=[RATE_LIMIT],
     headers_enabled=True,  # adds X-RateLimit-* response headers
 )
 
@@ -192,10 +195,18 @@ def create_app() -> FastAPI:
             "Moodle origin(s) before exposing this service publicly."
         )
 
+    # allow_credentials is deliberately tied to whether an explicit origin
+    # allowlist is configured. With allow_origins=["*"] Starlette would
+    # reflect the caller's Origin back and still send
+    # Access-Control-Allow-Credentials: true -- effectively letting any site
+    # make credentialed cross-origin calls. Auth here is header-based (Bearer),
+    # not cookies, so we simply don't advertise credential support under a
+    # wildcard. Set CORS_ORIGINS to real origins to re-enable it.
+    wildcard_cors = CORS_ORIGINS == ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"],
-        allow_credentials=True,
+        allow_origins=CORS_ORIGINS,
+        allow_credentials=not wildcard_cors,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "Accept", "X-API-Key"],
     )

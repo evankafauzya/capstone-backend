@@ -39,7 +39,7 @@ import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -177,8 +177,13 @@ class FaceEnrollmentStore:
             ],
         }
 
-    def get_embeddings(self, user_id: str) -> np.ndarray:
-        """Return all embeddings for a user as ``[N, embedding_dim]``."""
+    def get_embeddings(self, user_id: str) -> Tuple[List[str], np.ndarray]:
+        """Return ``(reference_ids, embeddings)`` for a user.
+
+        ``reference_ids`` is a list of the N reference row IDs; ``embeddings``
+        is an ``[N, embedding_dim]`` float32 array aligned to it. Both are
+        empty when the user has no enrolled references.
+        """
         validate_user_id(user_id)
         with self._connect() as conn:
             rows = conn.execute(
