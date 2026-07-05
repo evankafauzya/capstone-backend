@@ -77,3 +77,8 @@ htmlcov/
 # ---- OS --------------------------------------------------------------------
 .DS_Store
 Thumbs.db
+
+# Load-test payloads (large base64 blobs, do not commit)
+stress/payload.json
+stress/verify_payload.json
+stress/enroll_payload.json
