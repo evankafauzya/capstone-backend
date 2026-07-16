@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Optional
 
 import cv2
@@ -83,6 +84,10 @@ class FaceAligner:
             num_faces=1,
         )
         self._landmarker = mp_vision.FaceLandmarker.create_from_options(options)
+        # A single FaceLandmarker instance is shared across FastAPI's threadpool;
+        # MediaPipe's IMAGE-mode detect() is not documented thread-safe, so
+        # serialize calls to avoid intermittent errors / corrupted state.
+        self._lock = threading.Lock()
         logger.info(
             "FaceAligner ready (output_size=%d, model=%s)",
             self.output_size, model_path,
@@ -95,7 +100,8 @@ class FaceAligner:
         mp_image = self._mp.Image(
             image_format=self._mp.ImageFormat.SRGB, data=rgb,
         )
-        result = self._landmarker.detect(mp_image)
+        with self._lock:
+            result = self._landmarker.detect(mp_image)
         if not result.face_landmarks:
             return None
         lm = result.face_landmarks[0]

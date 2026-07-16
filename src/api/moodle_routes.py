@@ -563,35 +563,52 @@ def detect_behavior(body: DetectBehaviorRequest):
         result["suspicious_indicators"].append(f"multiple_faces: {len(faces)}")
         result["risk_level"] = "high"
 
-    if body.options.detect_head_pose and faces:
-        best = max(faces, key=lambda f: f.get("confidence", 0.0))
-        cx = best["x"] + best["w"] / 2
-        cy = best["y"] + best["h"] / 2
-        if cx / W < 0.25 or cx / W > 0.75:
-            result["unusual_head_pose"] = True
-            result["suspicious_indicators"].append("head_turned_sideways")
-            if result["risk_level"] == "low":
-                result["risk_level"] = "medium"
-        if cy / H < 0.20 or cy / H > 0.80:
-            result["unusual_head_pose"] = True
-            result["suspicious_indicators"].append("head_tilted")
-            if result["risk_level"] == "low":
-                result["risk_level"] = "medium"
+    # Head pose and gaze both require facial landmarks. Compute the horizontal
+    # nose-vs-eye-midline offset once; it is only meaningful when the active
+    # detector actually returns 5-point landmarks (e.g. the RetinaFace backend).
+    # The YOLO/Haar backends return landmarks=None, in which case orientation
+    # cannot be measured and we say so explicitly instead of guessing.
+    best = max(faces, key=lambda f: f.get("confidence", 0.0)) if faces else None
+    lm = (best or {}).get("landmarks") or {}
+    le, re_, nose = lm.get("left_eye"), lm.get("right_eye"), lm.get("nose")
+    have_landmarks = bool(le and re_ and nose)
+    yaw = None
+    if have_landmarks:
+        eye_mid_x = (le[0] + re_[0]) / 2.0
+        eye_span = max(1.0, abs(re_[0] - le[0]))
+        # Positive = nose sits toward one eye, i.e. the head is turned that way.
+        yaw = (nose[0] - eye_mid_x) / eye_span
 
-    if body.options.detect_eye_gaze and faces:
-        best = max(faces, key=lambda f: f.get("confidence", 0.0))
-        lm = best.get("landmarks") or {}
-        le, re_, nose = lm.get("left_eye"), lm.get("right_eye"), lm.get("nose")
-        if le and re_ and nose:
-            eye_mid_x = (le[0] + re_[0]) / 2
-            eye_span = max(1.0, abs(re_[0] - le[0]))
-            offset = (nose[0] - eye_mid_x) / eye_span
-            if abs(offset) > 0.25:
-                result["unusual_eye_gaze"] = True
-                result["suspicious_indicators"].append(f"gaze_offset:{offset:+.2f}")
+    if body.options.detect_head_pose and best is not None:
+        if have_landmarks:
+            result["head_yaw"] = round(yaw, 3)
+            if abs(yaw) > 0.35:
+                result["unusual_head_pose"] = True
+                result["suspicious_indicators"].append(f"head_turned:{yaw:+.2f}")
                 if result["risk_level"] == "low":
                     result["risk_level"] = "medium"
-            result["gaze_offset"] = round(offset, 3)
+        else:
+            # No landmarks -> cannot measure head orientation. Previously this
+            # was inferred from the face box position, which only reflects where
+            # the student sits in frame (off-centre != head turned, and a
+            # centred student who fully turns their head was never flagged).
+            result["head_pose_assessed"] = False
+            result["suspicious_indicators"].append("head_pose_not_assessed")
+
+    if body.options.detect_eye_gaze and best is not None:
+        if have_landmarks:
+            result["gaze_offset"] = round(yaw, 3)
+            if abs(yaw) > 0.25:
+                result["unusual_eye_gaze"] = True
+                result["suspicious_indicators"].append(f"gaze_offset:{yaw:+.2f}")
+                if result["risk_level"] == "low":
+                    result["risk_level"] = "medium"
+        else:
+            # No landmarks -> gaze cannot be assessed. Previously this branch
+            # silently passed as "all clear"; surface it so the caller/report
+            # can tell the signal is absent, not negative.
+            result["gaze_assessed"] = False
+            result["suspicious_indicators"].append("gaze_not_assessed")
 
     result["processing_time_ms"] = round((time.time() - start) * 1000.0, 2)
     result["backend"] = _backend_label()

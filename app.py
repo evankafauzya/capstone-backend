@@ -73,12 +73,14 @@ MAX_BODY_BYTES = 50 * 1024 * 1024  # 50 MB cap for base64 frames
 # from the same NAT, and a single API key cannot be sprayed across many IPs
 # to bypass the limit.
 def _rate_limit_key(request: Request) -> str:
-    auth = request.headers.get("Authorization", "")
-    if auth.lower().startswith("bearer "):
-        return f"key:{auth[7:].strip()}"
-    api_key_header = request.headers.get("X-API-Key", "").strip()
-    if api_key_header:
-        return f"key:{api_key_header}"
+    # Only bucket by token when it is the *valid* API key. Keying on any raw
+    # bearer value would let an attacker mint a fresh bucket per request with a
+    # random "Bearer <uuid>", sidestepping the IP limit entirely. Invalid or
+    # absent tokens fall back to the per-IP bucket.
+    from src.api.auth import _extract_token, _is_valid
+    token = _extract_token(request)
+    if token and _is_valid(token):
+        return f"key:{token}"
     return f"ip:{get_remote_address(request)}"
 
 
@@ -225,6 +227,15 @@ def create_app() -> FastAPI:
                     )
             except ValueError:
                 pass
+        elif request.method in ("POST", "PUT", "PATCH"):
+            # No Content-Length on a body-bearing method means chunked transfer
+            # encoding, which would stream past the size check above unbounded.
+            # Require a declared length so the cap always applies.
+            return JSONResponse(
+                status_code=411,
+                content={"error": "Length Required",
+                         "message": "A Content-Length header is required."},
+            )
         return await call_next(request)
 
     # X-Request-ID: accept one from the client (so callers can correlate

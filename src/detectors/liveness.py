@@ -11,11 +11,15 @@ Signal model:
   * A printed photo held in front of a camera never blinks, and stays
     pixel-perfectly still relative to the room.
   * A looped video replay can blink but usually has consistent micro-jitter
-    artifacts; that detection is out of scope for this baseline. Blink +
-    motion is enough to defeat the "print a JPEG" attack.
+    artifacts; that detection is out of scope for this baseline.
 
 Verdict:
-    is_alive  = (total_blinks >= 1) OR (max_nose_displacement_px > 4.0)
+    is_alive  = (total_blinks >= 1)
+
+    A blink is required because it is the one signal a static photo cannot
+    fake. Head motion alone is deliberately NOT sufficient -- wobbling a
+    printed photo produces nose displacement -- so it is reported as a
+    secondary indicator only, not used to confirm liveness.
 
 The MediaPipe FaceLandmarker model file is the same one used by the
 FaceAligner; we look up the default location from there.
@@ -24,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from typing import List, Optional, Tuple
 
@@ -85,6 +90,9 @@ class LivenessAnalyzer:
             num_faces=1,
         )
         self._landmarker = mp_vision.FaceLandmarker.create_from_options(options)
+        # Shared across FastAPI's threadpool; MediaPipe detect() is not
+        # documented thread-safe, so serialize access.
+        self._lock = threading.Lock()
         logger.info("LivenessAnalyzer ready (model=%s)", path)
 
     # ---- per-frame ---------------------------------------------------------
@@ -92,7 +100,8 @@ class LivenessAnalyzer:
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         h, w = frame_bgr.shape[:2]
         mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
-        result = self._landmarker.detect(mp_image)
+        with self._lock:
+            result = self._landmarker.detect(mp_image)
         if not result.face_landmarks:
             return None
         lm = result.face_landmarks[0]
@@ -157,10 +166,14 @@ class LivenessAnalyzer:
         if head_motion_px < MIN_MOTION_PX_FOR_LIVE:
             reasons.append("no_head_motion")
 
-        is_alive = (
-            total_blinks >= MIN_BLINKS_FOR_LIVE
-            or head_motion_px >= MIN_MOTION_PX_FOR_LIVE
-        )
+        # A blink is the decisive liveness signal: a printed photo or a paused
+        # video frame cannot blink. Head motion is NOT sufficient on its own --
+        # wobbling a printed photo a few pixels in front of the camera clears any
+        # small pixel threshold -- so it is kept only as a reported secondary
+        # indicator, never as a stand-alone pass. (Tradeoff: a genuine user who
+        # does not blink within the clip is rejected and must retry, so callers
+        # should capture a long enough clip and/or prompt the user to blink.)
+        is_alive = total_blinks >= MIN_BLINKS_FOR_LIVE
 
         return {
             "is_alive": is_alive,

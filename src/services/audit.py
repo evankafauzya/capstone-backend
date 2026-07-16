@@ -67,6 +67,10 @@ class VerificationAuditStore:
         conn = sqlite3.connect(
             self.db_path, isolation_level=None, check_same_thread=False,
         )
+        # Shares the DB file with FaceEnrollmentStore under the threadpool; wait
+        # for a competing writer rather than erroring, and use WAL for readers.
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA journal_mode = WAL")
         try:
             yield conn
         finally:

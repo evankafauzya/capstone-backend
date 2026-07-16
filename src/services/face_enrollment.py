@@ -83,6 +83,12 @@ class FaceEnrollmentStore:
             self.db_path, isolation_level=None, check_same_thread=False
         )
         conn.execute("PRAGMA foreign_keys = ON")
+        # Wait up to 5s for a competing writer instead of failing immediately
+        # with "database is locked", and use WAL so readers don't block the
+        # writer. Both this store and the audit store share one DB file and run
+        # under FastAPI's threadpool, so concurrent access is expected.
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA journal_mode = WAL")
         try:
             yield conn
         finally:
