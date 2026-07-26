@@ -230,47 +230,64 @@ class FaceEnrollmentStore:
 
         now = _utcnow()
         with self._connect() as conn:
-            existing = conn.execute(
-                "SELECT COUNT(*) FROM face_references WHERE user_id = ?",
-                (user_id,),
-            ).fetchone()[0]
-            if existing + len(embeddings) > MAX_REFERENCES_PER_USER:
-                raise EnrollmentError(
-                    f"User '{user_id}' would exceed the limit of "
-                    f"{MAX_REFERENCES_PER_USER} references "
-                    f"(has {existing}, attempting to add {len(embeddings)})."
-                )
+            # BEGIN IMMEDIATE takes the write lock up front, so the count check
+            # and the inserts run as one atomic transaction. Without it (we run
+            # in autocommit) two concurrent enrolls for the same user could both
+            # pass the limit check and jointly exceed MAX_REFERENCES_PER_USER,
+            # or a mid-loop failure could leave a partial reference set.
+            # busy_timeout makes a second writer wait for the lock, not error.
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = conn.execute(
+                    "SELECT COUNT(*) FROM face_references WHERE user_id = ?",
+                    (user_id,),
+                ).fetchone()[0]
+                if existing + len(embeddings) > MAX_REFERENCES_PER_USER:
+                    raise EnrollmentError(
+                        f"User '{user_id}' would exceed the limit of "
+                        f"{MAX_REFERENCES_PER_USER} references "
+                        f"(has {existing}, attempting to add {len(embeddings)})."
+                    )
 
-            conn.execute(
-                """
-                INSERT INTO users (user_id, enrolled_at, updated_at,
-                                   embedding_dim, model_backend)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    updated_at = excluded.updated_at,
-                    embedding_dim = excluded.embedding_dim,
-                    model_backend = excluded.model_backend
-                """,
-                (user_id, now, now, self.embedding_dim, model_backend),
-            )
-
-            new_ids = []
-            for emb, box in zip(embeddings, face_boxes):
-                ref_id = uuid.uuid4().hex[:12]
                 conn.execute(
                     """
-                    INSERT INTO face_references
-                        (id, user_id, added_at, embedding,
-                         face_w, face_h, face_confidence)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO users (user_id, enrolled_at, updated_at,
+                                       embedding_dim, model_backend)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        updated_at = excluded.updated_at,
+                        embedding_dim = excluded.embedding_dim,
+                        model_backend = excluded.model_backend
                     """,
-                    (
-                        ref_id, user_id, now, self._emb_to_blob(emb),
-                        int(box.get("w", 0)), int(box.get("h", 0)),
-                        float(box.get("confidence", 0.0)),
-                    ),
+                    (user_id, now, now, self.embedding_dim, model_backend),
                 )
-                new_ids.append(ref_id)
+
+                new_ids = []
+                for emb, box in zip(embeddings, face_boxes):
+                    ref_id = uuid.uuid4().hex[:12]
+                    conn.execute(
+                        """
+                        INSERT INTO face_references
+                            (id, user_id, added_at, embedding,
+                             face_w, face_h, face_confidence)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            ref_id, user_id, now, self._emb_to_blob(emb),
+                            int(box.get("w", 0)), int(box.get("h", 0)),
+                            float(box.get("confidence", 0.0)),
+                        ),
+                    )
+                    new_ids.append(ref_id)
+                conn.execute("COMMIT")
+            except Exception:
+                # Roll back so the write lock is released and no partial set
+                # remains. Guarded in case the transaction is already gone.
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise
 
         logger.info(
             "Enrolled %d reference(s) for user '%s' (total now %d)",

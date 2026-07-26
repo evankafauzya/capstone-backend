@@ -899,7 +899,22 @@ def delete_enrollment(user_id: str):
         return _err(str(exc), 400)
 
     deleted = _enrollment_store.delete_user(user_id)
-    return {"user_id": user_id, "deleted": bool(deleted)}
+
+    # Also scrub this user's audit trail: NULL their identifiers (user_id,
+    # client_ip) while keeping the rows for aggregate stats. Best-effort -- a
+    # failure here must not fail the enrollment deletion.
+    anonymized = 0
+    if _audit_store is not None:
+        try:
+            anonymized = _audit_store.anonymize_user(user_id)
+        except Exception:
+            logger.exception("Failed to anonymize audit rows for user '%s'", user_id)
+
+    return {
+        "user_id": user_id,
+        "deleted": bool(deleted),
+        "audit_rows_anonymized": anonymized,
+    }
 
 
 @moodle_api.post("/batch/process", summary="Process several frames in one request")

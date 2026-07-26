@@ -128,7 +128,7 @@ class FaceAligner:
         except IndexError:
             return None
 
-    # ---- public API ------------------------------------------------------
+    # ---- public API + Preprocess
     def align(self, image_bgr: np.ndarray) -> Optional[np.ndarray]:
         """Align a face crop to the canonical template.
 

@@ -143,6 +143,19 @@ class VerificationAuditStore:
             )
         return audit_id
 
+    def anonymize_user(self, user_id: str) -> int:
+        """Strip identifiers (user_id, client_ip) from this user's audit rows
+        while keeping the rows for their statistical value. Returns the number
+        of rows anonymized. Used to honour data-erasure requests without losing
+        aggregate verification stats."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE verifications SET user_id = NULL, client_ip = NULL "
+                "WHERE user_id = ?",
+                (user_id,),
+            )
+            return cur.rowcount
+
     # ------------------------------------------------------------------ reads
     def for_user(self, user_id: str, limit: int = 100) -> List[dict]:
         with self._connect() as conn:
