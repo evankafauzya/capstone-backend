@@ -41,6 +41,9 @@ models_data/*.task
 models_data/*.h5
 models_data/*.pb
 
+# Model bundles -- exceed GitHub's 100 MB/file limit, distributed out-of-band
+*.zip
+
 # ---- Local test images (face photos, training samples) --------------------
 docs/colab/
 

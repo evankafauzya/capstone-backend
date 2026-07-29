@@ -103,6 +103,44 @@ Without these, the system **falls back to OpenCV Haar Cascades** and accuracy
 collapses. `/health` will return 503 in that state, so a load balancer will
 route traffic away.
 
+### Getting the weights
+
+The four files are distributed as a single `models_data.zip` (≈230 MB) shared
+out-of-band — they are **deliberately excluded from git**, since
+`face_recognition_model.pth` alone is 203 MB and GitHub rejects any file over
+100 MB. Unzip it so the layout is:
+
+```
+models_data/
+├── face_detection_yolo.pt              #   6.2 MB
+├── face_detection_model.pth            #   3.6 MB
+├── face_landmarker.task                #   3.8 MB
+├── face_recognition_efficient.pth      #  43.9 MB
+└── face_recognition_model.pth          # 203.1 MB
+```
+
+Verify the download before booting — a truncated `.pth` fails at load time with
+a confusing unpickling error rather than a clear "file is corrupt":
+
+```bash
+shasum -a 256 -c models_data/SHA256SUMS
+```
+
+<details>
+<summary><code>models_data/SHA256SUMS</code></summary>
+
+```
+07c14f443fa89ea11f636e6b2a857ab176743111d003687561beea0ddde627c4  face_detection_model.pth
+1ea0c44d193fdeab451bbd94ad0f7f0309b86d2e86afacb301cadfe77893d62c  face_detection_yolo.pt
+64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff  face_landmarker.task
+781eddafd7532fe1d080914a805b8b1d5710310f3316faaeefaa1f5b5dcd713e  face_recognition_efficient.pth
+64f4290d235ef06f00cde676d45e59e08dc81e06ae49abf01a64fd2edf8946f6  face_recognition_model.pth
+```
+
+</details>
+
+No weights on hand? Run the test suite with `MOCK_MODELS=1` — see §7.
+
 ---
 
 ## 4. Configuration
